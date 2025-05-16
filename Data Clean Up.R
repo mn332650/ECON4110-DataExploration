@@ -5,18 +5,18 @@ library(lubridate)
 
 # Read in the Google Trends Data
 ## filenames of all the trends_up_to files
-files <- list.files(path = "../DataExploration Data",
+files = list.files(path = "../DataExploration Data",
                     pattern = "trends_up_to.*\\.csv", 
                     full.names = TRUE)
 
-gg_trends <- import_list(files, rbind = TRUE,fill=TRUE)
+gg_trends = import_list(files, rbind = TRUE,fill=TRUE)
 
 # Aggregate the GG Trends Data
 ## convert string to date and extract the first date (aka first 10 characters)
-gg_trends$date <- ymd(str_sub(gg_trends$monthorweek, 1, 10))
+gg_trends$date = ymd(str_sub(gg_trends$monthorweek, 1, 10))
 
 ## round all dates in the same month to be the first of the month
-gg_trends$month <- floor_date(gg_trends$date, unit = "month")
+gg_trends$month = floor_date(gg_trends$date, unit = "month")
 
 ## standardize the index variable 
 gg_trends = gg_trends %>%
