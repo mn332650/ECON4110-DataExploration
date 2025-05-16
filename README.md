@@ -11,9 +11,9 @@ This project investigates whether the release of the College Scorecard by the U.
 * Estimate the causal impact of the Scorecard using Difference-in-Differences (DID) and related regression techniques.
 * Visualize trends in search activity before and after the Scorecard by earnings group.
 
-## 
 ## Tools Used
 - **Programming Language:**  Rstudio
 - **Packages:** tidyverse, rio, fixest
 
-## Project Structure
+## Note
+This analysis is limited to institutions that primarily ***award bachelor’s degrees***. The dataset has been filtered accordingly to ensure consistency and to align with the population of interest—four-year degree-granting colleges, which are most relevant for prospective undergraduate students and the College Scorecard’s earnings metrics.
