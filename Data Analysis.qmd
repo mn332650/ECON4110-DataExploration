@@ -1,0 +1,179 @@
+---
+title: "ECON4110 - DATA EXPLORATION PROJECT"
+author: "Hanah Nguyen"
+format: 
+  html:
+    embed-resources: true
+    toc: true
+editor: visual
+---
+
+```{r,include=FALSE}
+# Load up libraries
+library(tidyverse)
+library(rio)
+library(ggforce)
+library(fixest)
+library(scales)
+```
+
+# Introduction
+
+***Purpose:*** This project navigates the effect of the release of the U.S Department of Education's College Scorecard in September 2015 on high-earnings colleges.
+
+***Goal:*** Understand whether this public release of earnings data influenced students' behavior on certain types of colleges.
+
+***Approach:*** Using difference-in-difference regression models with interaction terms, this project explores whether colleges with higher or lower post-graduate earnings experienced different changes in search interest following the Scorecard's launch.
+
+# Exploratory Data Analysis
+
+After exploring the final_data_clean set, I decide to keep these columns like below and do some research such as datatypes, NULL values to convert them into proper format for further analysis.
+
+```{r}
+# load final_data from Data Clean Up
+final_data_clean = import("clean/final_data_clean.rds",trust=TRUE)
+
+# keep these columns for future analysis
+final_data_clean2 = final_data_clean %>%
+  select(schid,schname, index, index_z,date, month, `md_earn_wne_p10-REPORTED-EARNINGS`, CONTROL, PCTPELL, UGDS,UGDS_WHITE,SAT_AVG, LOCALE)
+
+# convert md_earn_wne_p10_REPORTED_EARNINGS to numeric 
+## Replace 20463 PrivacySuppressed and 55524 NULL values with NA
+final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS` = na_if(final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS`, "PrivacySuppressed")
+
+final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS` = na_if(final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS`, "NULL")
+
+## Check if the data still has "PrivacySuppressed" and "NULL"
+sum(final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS`=="PrivacySuppressed",na.rm = TRUE)
+
+## convert the column to numeric
+final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS` = as.numeric(final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS`)
+
+```
+
+Next, I will classify high and low-earnings colleges. Any values under the median will be classified as low, and above the median will be high-earnings. 1 will indicate high-earnings colleges, and 0 will indicate low-earnings colleges.
+
+```{r}
+# create high and low-earnings dummy variables
+final_data_clean2$high_earnings= ifelse(final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS` >=median(final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS`,na.rm=TRUE),1,0)
+
+# Create post-treatment dummy for post_scorecard effect
+## date after 2015/09/15 is 1, before that is 0
+final_data_clean2$post_scorecard <- ifelse(final_data_clean2$date >= as.Date("2015-09-01"), 1, 0)
+```
+
+# Analysis
+
+## First regression
+
+I first estimate the treatment effect of Google search interest on high-earnings colleges.
+
+```{r}
+# regress index_z on interaction term between post_scorecard*high_earnings
+reg1 = feols(index_z ~ post_scorecard*high_earnings, data = final_data_clean2)
+etable(reg1)
+```
+
+***Result:***
+
+-   The coefficient B1 = -0.1567 and it is statistically significant, suggesting that on average, the introduction of the College Scorecard was associated with a decrease of 0.1567 units in the Google Trends search index for all colleges.
+
+-   The coefficient for high-earnings is positive 0.0158, which indicates that colleges with high-earnings graduates tend to have a 0.0158 unit higher search index on Google Trends compared to colleges with low-earnings graduates.
+
+-   The last coefficient in the interaction term post_scorecard\*high_earnings of negative 0.0845 and statistically significant, telling us that the effect of the College Scorecard on search activity was less positive for colleges with high-earnings graduates compared to those with low-earnings graduates.
+
+## Second regression
+
+Next, I add some control variables to the model, such as schname and date.
+
+```{r}
+reg2 = feols(index_z ~ post_scorecard * high_earnings | schname + date, data = final_data_clean2)
+etable(reg2)
+```
+
+***Result:*** After controlling for time-invariant school characteristics and overall time trends in search activity, the regression reveals that the introduction of the College Scorecard led to a statistically significant 0.0833 unit decrease with a standard error of 0.0232 in Google Trends search index for colleges with high-earning graduates compared to those with low-earning graduates. This suggests that the College Scorecard made graduate earnings information more prominent, resulting in decreased search interest for institutions with better earnings outcomes, beyond general search trends and pre-existing differences between colleges.
+
+## Third regression
+
+Lastly, I use the logarithm of median earnings to reduce the positive skewness and avoid potential heteroskedasticity. I estimate the effect of post_scorecard on index across colleges and how that effect varies by log_earnings, controlling for CONTROL (type of school: public vs private), and LOCALE (urban or rural areas).
+
+```{r}
+
+final_data_clean2$log_earnings = log(final_data_clean2$`md_earn_wne_p10-REPORTED-EARNINGS`)
+
+reg3 = feols(index_z ~ post_scorecard * log_earnings + CONTROL + LOCALE, data = final_data_clean2)
+etable(reg3)
+
+```
+
+***Result:***
+
+-   Holding earnings and other variables constant, after the Scorecard was released, the average college search increased 1.821 points in search interest.
+
+-   A 1% increase in earnings is associated with a statistically significant increase of 0.0355 units in the search index. This indicates that colleges with better earning outcomes tend to attract more online search interest.
+
+-   For CONTROL coefficient, every one-unit increase in CONTROL is associated with 0.58 unit increase in the search index holding other factors constant.
+
+-   The majority of LOCALE variables are negative, which means colleges in thse other locations tend to experience significantly lower Google Trends search activity after controlling for other factors.
+
+-   The interaction term post_scorecard\*log_earnings of negative 3.073 tells us the effect of Scorecard's introduction on search interest is weaker for colleges with higher median earnings. For 1% increase in median earnings, the impact of the Scorecard on the search index decreases by 3.07 units.
+
+## Graph 1: Search Interest by Earning Groups Over Time
+
+```{r}
+plot_data = final_data_clean2 %>%
+  group_by(date, high_earnings) %>%
+  summarize(mean_index = mean(index, na.rm = TRUE),.groups ="drop")
+
+ggplot(plot_data %>% filter(!is.na(high_earnings)), aes(x = as.Date(date), y = mean_index, color = factor(high_earnings))) +
+  geom_line() +
+  geom_vline(xintercept = as.Date("2015-09-1"), linetype = "dashed",color = "brown1", size = 0.8) +
+  annotate("text", x = as.Date("2015-09-1"), y = max(plot_data$mean_index, na.rm = TRUE), label = "Sep 1, 2015",vjust =2 ,hjust = -0.1,color = "brown1",size = 4)+
+  scale_color_manual(values = c("0" = "blue1", "1" = "brown1"))+
+  labs(title = "Google Search Interest: High vs. Low Earnings Colleges Over Time",
+       x = "Years",
+       y = "Average Search Interest",
+       color = "Earning Groups") +  
+  theme_minimal()+
+  theme(axis.title.x = element_text(face="bold",family="serif"),
+        axis.text.y = element_text(face = "bold",family="serif"),
+        axis.text.x = element_text(face = "bold",family="serif"),
+        title=element_text(face="bold",family="serif"),
+        plot.title=element_text(hjust=0.5,face="bold",size=14)
+        )
+
+```
+
+This graph demonstrates the average Google search interest over time for 2 groups of colleges: high and low-earning after graduation. Generally, people show a higher level of interest in colleges associated with higher post-graduation earnings compared to those with lower earnings over the years. The release of College Scorecard in September 2015 appears to narrow the gap between the two groups, suggesting a relative decrease in interest for high-earning colleges.
+
+## Graph 2: Pre/Post Search Interest by Earnings Group
+
+```{r}
+final_data_clean2$period = ifelse(final_data_clean2$post_scorecard == 1, "Post", "Pre")
+
+did_plot_data = final_data_clean2 %>%
+  group_by(period, high_earnings) %>%
+  summarize(avg_index = mean(index, na.rm = TRUE),.groups="drop")
+
+ggplot(did_plot_data%>% filter(!is.na(high_earnings) & !is.na(period)), aes(x = period, y = avg_index, fill = factor(high_earnings))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("bisque3", "brown"))+
+  labs(title = "Pre/Post College Scorecard Search Interest",
+       x = "Period", y = "Average Search Index",
+       fill = "High Earning") +
+  theme_classic()+
+   theme(axis.title.x = element_text(face="bold",family="serif"),
+        axis.text.y = element_text(face = "bold",family="serif"),
+        axis.text.x = element_text(face = "bold",family="serif"),
+        title=element_text(face="bold",family="serif"),
+        plot.title=element_text(hjust=0.5,face="bold",size=18)
+        )
+
+
+```
+
+This chart compares the search interest in high and low earning colleges between pre and post the release of Scorecard. Generally, there is a higher level of interest in colleges with higher earnings post-graduation. However, after the release of Scorecard in September 2015, there is a decrease in search interest between both groups.
+
+# Conclusion
+
+The introduction of the College Scorecard ***decreased*** search activity on Google Trends for colleges with high-earning graduates by ***0.0833 units*** relative to what it did for colleges with low-earning graduates, with a standard error of ***0.0232***. This result comes from the ***post_scorecard \* high_earnings*** coefficient(s) in my regression #2.
